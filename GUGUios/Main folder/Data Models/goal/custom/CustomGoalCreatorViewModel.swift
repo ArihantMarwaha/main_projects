@@ -7,6 +7,7 @@
 
 import Foundation
 import Combine
+import SwiftUI
 
 @MainActor
 class CustomGoalCreatorViewModel: ObservableObject {
@@ -16,11 +17,11 @@ class CustomGoalCreatorViewModel: ObservableObject {
     @Published var showingError = false
     @Published var errorMessage = ""
     
-    private var goalsManager: GoalsManager
+    private var goalsManager: GoalsManager?
     private let maxTargetCount = 50
     private let minTargetCount = 1
     
-    init(goalsManager: GoalsManager) {
+    init(goalsManager: GoalsManager? = nil) {
         self.goalsManager = goalsManager
         self.template = CustomGoalTemplate()
         
@@ -58,7 +59,17 @@ class CustomGoalCreatorViewModel: ObservableObject {
         }
         
         let goal = template.createGoal()
-        goalsManager.addGoal(goal)
+        goalsManager?.addGoal(goal)
+        
+        // Schedule custom reminders if enabled
+        if goal.hasCustomReminders && !goal.reminderTimes.isEmpty {
+            NotificationManager.shared.scheduleCustomGoalReminders(
+                goalId: goal.id,
+                goalTitle: goal.title,
+                goalDescription: goal.description,
+                reminderTimes: goal.reminderTimes
+            )
+        }
     }
     
     // Update template interval when hours or minutes change
@@ -76,5 +87,19 @@ class CustomGoalCreatorViewModel: ObservableObject {
             errorMessage = "Target count cannot exceed \(maxTargetCount)"
         }
         showingError = true
+    }
+    
+    // Reminder management methods
+    func addReminder() {
+        let now = Date()
+        let calendar = Calendar.current
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: now) ?? now
+        let reminderTime = calendar.date(bySettingHour: 9, minute: 0, second: 0, of: tomorrow) ?? tomorrow
+        
+        template.reminderTimes.append(reminderTime)
+    }
+    
+    func deleteReminder(at offsets: IndexSet) {
+        template.reminderTimes.remove(atOffsets: offsets)
     }
 }

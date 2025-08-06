@@ -40,28 +40,29 @@ class MealGoalTracker: GoalTracker {
         
         var cooldownInterval: TimeInterval {
             switch self {
-            case .breakfast: return 2 * 3600 // 2 hours
-            case .morningSnack: return 1.5 * 3600 // 1.5 hours
-            case .lunch: return 2 * 3600 // 2 hours
-            case .afternoonSnack: return 1.5 * 3600 // 1.5 hours
-            case .dinner: return 2 * 3600 // 2 hours
+            case .breakfast: return 3 * 3600 // 3 hours
+            case .morningSnack: return 3 * 3600 // 3 hours
+            case .lunch: return 3 * 3600 // 3 hours
+            case .afternoonSnack: return 3 * 3600 // 3 hours
+            case .dinner: return 3 * 3600 // 3 hours
             }
         }
+        
     }
     
     @Published private(set) var completedMeals: Set<MealType> = []
     @Published private(set) var cooldowns: [MealType: Date] = [:]
     @Published private(set) var lastMealLogged: MealType?
     
-    static func createDefault(analyticsManager: AnalyticsManager) -> MealGoalTracker {
+    static func createDefault(analyticsManager: AnalyticsManager, swiftDataRepository: SwiftDataGoalRepository? = nil) -> MealGoalTracker {
         let mealGoal = Goal(
             title: "Meals & Snacks",
             targetCount: 5,
-            intervalInSeconds: TrackerConstants.hourInSeconds * 2,
+            intervalInSeconds: TrackerConstants.hourInSeconds * 3, // 3 hours
             colorScheme: .orange,
             isDefault: true
         )
-        return MealGoalTracker(goal: mealGoal, analyticsManager: analyticsManager)
+        return MealGoalTracker(goal: mealGoal, analyticsManager: analyticsManager, swiftDataRepository: swiftDataRepository)
     }
     
     override func getProgress() -> Double {
@@ -69,40 +70,98 @@ class MealGoalTracker: GoalTracker {
     }
     
     override func loadSavedData() {
+        print("🔄 MealGoalTracker: Starting loadSavedData()")
         super.loadSavedData()
         
         loadCooldowns()
+        resetExpiredCooldowns()
         
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
         
-        // Restore completed meals from entries
-        completedMeals = Set(
-            todayEntries
-                .filter { entry in
-                    entry.completed && calendar.isDate(entry.timestamp, inSameDayAs: today)
-                }
-                .compactMap { entry in
-                    guard let mealTypeString = entry.mealType else { return nil }
-                    return MealType(rawValue: mealTypeString)
+        // Filter and validate entries more strictly
+        let todayCompletedEntries = todayEntries
+            .filter { entry in
+                // Check if entry is for today and completed
+                let isToday = calendar.isDate(entry.timestamp, inSameDayAs: today)
+                let isCompleted = entry.completed
+                let hasMealType = entry.mealType != nil
+                
+                print("   🔍 Entry ID: \(entry.id.uuidString.prefix(8)) - MealType: \(entry.mealType ?? "nil") - completed: \(isCompleted), isToday: \(isToday), hasMealType: \(hasMealType)")
+                
+                return isCompleted && isToday && hasMealType
+            }
+        
+        print("📊 Found \(todayCompletedEntries.count) valid completed entries for today:")
+        todayCompletedEntries.forEach { entry in
+            print("   - Entry: \(entry.mealType!) at \(entry.timestamp) (ID: \(entry.id.uuidString.prefix(8)))")
+        }
+        
+        let newCompletedMeals = Set(
+            todayCompletedEntries
+                .compactMap { (entry: GoalEntry) -> MealType? in
+                    guard let mealTypeString = entry.mealType else { 
+                        print("   ⚠️ Entry has nil mealType")
+                        return nil 
+                    }
+                    let mealType = MealType(rawValue: mealTypeString)
+                    if mealType == nil {
+                        print("   ❌ Could not convert '\(mealTypeString)' to MealType")
+                        print("   📝 Available MealTypes: \(MealType.allCases.map { $0.rawValue })")
+                    } else {
+                        print("   ✅ Successfully converted '\(mealTypeString)' to MealType")
+                    }
+                    return mealType
                 }
         )
         
-        // Update analytics for each completed meal
-        for entry in todayEntries where entry.completed && calendar.isDate(entry.timestamp, inSameDayAs: today) {
-            analyticsManager.recordProgress(for: goal, entry: entry)
+        completedMeals = newCompletedMeals
+        
+        print("📊 Final loaded meal data: \(completedMeals.count) completed meals today")
+        completedMeals.forEach { meal in
+            print("   ✅ Completed: \(meal.rawValue)")
+        }
+        
+        // Force UI update (already on MainActor)
+        objectWillChange.send()
+    }
+    
+    private func resetExpiredCooldowns() {
+        let now = Date()
+        let expiredCooldowns = cooldowns.filter { _, endTime in
+            now >= endTime
+        }
+        
+        for (mealType, _) in expiredCooldowns {
+            cooldowns.removeValue(forKey: mealType)
+            print("🕒 Removed expired cooldown for \(mealType.rawValue)")
+        }
+        
+        if !expiredCooldowns.isEmpty {
+            saveCooldowns()
         }
     }
     
     func canLogMeal(_ type: MealType) -> Bool {
+        print("🔍 Checking if can log \(type.rawValue):")
+        print("   - Already completed: \(completedMeals.contains(type))")
+        
         // Can't log if already completed
-        guard !completedMeals.contains(type) else { return false }
+        guard !completedMeals.contains(type) else { 
+            print("   ❌ Already completed")
+            return false 
+        }
         
         // Check cooldown for this meal type
         if let cooldownEnd = cooldowns[type] {
-            return Date() >= cooldownEnd
+            let canLog = Date() >= cooldownEnd
+            print("   - Cooldown end: \(cooldownEnd)")
+            print("   - Current time: \(Date())")
+            print("   - Can log: \(canLog)")
+            return canLog
         }
         
+        print("   ✅ No cooldown, can log")
         return true
     }
     
@@ -122,36 +181,58 @@ class MealGoalTracker: GoalTracker {
             mealType: type.rawValue
         )
         
-        // Batch UI updates
+        print("🍽️ Logging meal: \(type.rawValue)")
+        
+        // Update UI state immediately (safe operations only)
         withAnimation(.spring(response: 0.3)) {
             completedMeals.insert(type)
             cooldowns[type] = nextAvailableTime
-            saveCooldowns()
             lastMealLogged = type
             todayEntries.append(entry)
-            
-            // Update analytics with the completed meal
-            analyticsManager.recordProgress(for: goal, entry: entry)
-            
-            // Save after all updates
-            saveEntries()
-            
-            // Notify of progress update
-            NotificationCenter.default.post(
-                name: .goalProgressUpdated,
-                object: nil,
-                userInfo: [
-                    "goal": goal,
-                    "entry": entry,
-                    "goalType": goal.title,
-                    "mealType": type.rawValue,
-                    "cooldownDuration": type.cooldownInterval,
-                    "cooldownEndTime": nextAvailableTime,
-                    "goalId": goal.id
-                ]
-            )
-            
             objectWillChange.send()
+        }
+        
+        // Perform data operations asynchronously to prevent UI hangs
+        Task {
+            do {
+                // Save cooldowns first (safer operation)
+                await MainActor.run { [weak self] in
+                    self?.saveCooldowns()
+                }
+                
+                // Update analytics 
+                await MainActor.run { [weak self] in
+                    guard let self = self else { return }
+                    self.analyticsManager.recordProgress(for: self.goal, entry: entry)
+                }
+                
+                // Save entries to SwiftData
+                await MainActor.run { [weak self] in
+                    self?.saveEntries()
+                }
+                
+                // Post simplified notification (avoid passing complex objects)
+                await MainActor.run {
+                    NotificationCenter.default.post(
+                        name: .goalProgressUpdated,
+                        object: nil,
+                        userInfo: [
+                            "goalId": goal.id.uuidString,
+                            "goalTitle": goal.title,
+                            "mealType": type.rawValue,
+                            "completed": true
+                        ]
+                    )
+                    
+                    print("✅ Meal logged successfully: \(type.rawValue)")
+                }
+                
+            } catch {
+                await MainActor.run {
+                    print("❌ Error during meal logging: \(error.localizedDescription)")
+                    // Don't crash - the UI state is already updated
+                }
+            }
         }
     }
     
@@ -177,27 +258,46 @@ class MealGoalTracker: GoalTracker {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
         
-        return todayEntries
+        let filteredEntries: [GoalEntry] = todayEntries
             .filter { entry in
                 entry.completed &&
                 calendar.isDate(entry.timestamp, inSameDayAs: today)
             }
-            .compactMap { entry in
+        
+        let completedToday: [MealType] = filteredEntries
+            .compactMap { (entry: GoalEntry) -> MealType? in
                 guard let mealTypeString = entry.mealType else { return nil }
                 return MealType(rawValue: mealTypeString)
             }
+        
+        print("🍽️ Today's completed meals: \(completedToday.map { $0.rawValue })")
+        return completedToday
     }
     
-    // Override to properly record analytics
+    // Override to properly record analytics and schedule notifications
     override func logEntry(for entry: GoalEntry) {
         super.logEntry(for: entry)
         
         Task {
-            NotificationManager.shared.scheduleNotification(
-                title: "Time for your next meal!",
-                body: "Stay on track with your meal schedule",
-                delay: TrackerConstants.hourInSeconds * 2
-            )
+            // Schedule goal reminder if not fully completed
+            let remaining = goal.targetCount - getDailyProgress()
+            if remaining > 0 {
+                NotificationManager.shared.scheduleGoalReminder(
+                    goalTitle: goal.title,
+                    targetCount: goal.targetCount,
+                    currentProgress: getDailyProgress()
+                )
+            }
+            
+            // Schedule cooldown end notification if meal type provided
+            if let mealTypeString = entry.mealType,
+               let mealType = MealType(rawValue: mealTypeString),
+               let cooldownEnd = getCooldownEndTime(for: mealType) {
+                NotificationManager.shared.scheduleGoalCooldownEnd(
+                    goalTitle: "\(goal.title) - \(mealType.rawValue)",
+                    cooldownEndTime: cooldownEnd
+                )
+            }
         }
     }
     
@@ -244,7 +344,7 @@ class MealGoalTracker: GoalTracker {
                     entry.completed &&
                     calendar.isDate(entry.timestamp, inSameDayAs: date)
                 }
-                .compactMap { entry in
+                .compactMap { (entry: GoalEntry) -> MealType? in
                     guard let mealTypeString = entry.mealType else { return nil }
                     return MealType(rawValue: mealTypeString)
                 }
@@ -253,11 +353,16 @@ class MealGoalTracker: GoalTracker {
     
     // Save cooldowns dictionary to UserDefaults
     private func saveCooldowns() {
-        let defaults = UserDefaults.standard
-        let dictToSave = cooldowns.reduce(into: [String: Date]()) { partialResult, pair in
-            partialResult[pair.key.rawValue] = pair.value
+        do {
+            let defaults = UserDefaults.standard
+            let dictToSave = cooldowns.reduce(into: [String: Date]()) { partialResult, pair in
+                partialResult[pair.key.rawValue] = pair.value
+            }
+            defaults.set(dictToSave, forKey: "Cooldowns-\(goal.id.uuidString)")
+            print("💾 Saved cooldowns for \(cooldowns.count) meal types")
+        } catch {
+            print("❌ Failed to save cooldowns: \(error.localizedDescription)")
         }
-        defaults.set(dictToSave, forKey: "Cooldowns-\(goal.id.uuidString)")
     }
     
     // Load cooldowns dictionary from UserDefaults
@@ -267,20 +372,14 @@ class MealGoalTracker: GoalTracker {
             cooldowns = [:]
             return
         }
-        cooldowns = savedDict.compactMapKeys { MealType(rawValue: $0) }
+        // Convert string keys back to MealType keys
+        var newCooldowns: [MealType: Date] = [:]
+        for (stringKey, date) in savedDict {
+            if let mealType = MealType(rawValue: stringKey) {
+                newCooldowns[mealType] = date
+            }
+        }
+        cooldowns = newCooldowns
     }
 }
 
-private extension Dictionary {
-    /// Returns a dictionary containing the keys and values that can be mapped by the transform,
-    /// filtering out nil keys or values.
-    func compactMapKeys<K: Hashable>(_ transform: (Key) -> K?) -> [K: Value] {
-        var result = [K: Value]()
-        for (key, value) in self {
-            if let newKey = transform(key) {
-                result[newKey] = value
-            }
-        }
-        return result
-    }
-}

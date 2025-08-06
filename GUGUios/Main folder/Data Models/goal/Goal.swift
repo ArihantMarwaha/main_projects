@@ -18,6 +18,9 @@ struct Goal: Identifiable, Codable, Equatable {
     var startTime: Date
     var isActive: Bool
     var isDefault: Bool
+    var requiresSpecialInterface: Bool
+    var hasCustomReminders: Bool
+    var reminderTimes: [Date]
     
     init(id: UUID = UUID(),
          title: String,
@@ -27,7 +30,10 @@ struct Goal: Identifiable, Codable, Equatable {
          colorScheme: GoalColorScheme = .blue,
          startTime: Date = Date(),
          isActive: Bool = true,
-         isDefault: Bool = false) {
+         isDefault: Bool = false,
+         requiresSpecialInterface: Bool = false,
+         hasCustomReminders: Bool = false,
+         reminderTimes: [Date] = []) {
         self.id = id
         self.title = title
         self.description = description
@@ -37,6 +43,9 @@ struct Goal: Identifiable, Codable, Equatable {
         self.startTime = startTime
         self.isActive = isActive
         self.isDefault = isDefault
+        self.requiresSpecialInterface = requiresSpecialInterface
+        self.hasCustomReminders = hasCustomReminders
+        self.reminderTimes = reminderTimes
     }
     
     // Add custom Equatable implementation if needed
@@ -49,7 +58,10 @@ struct Goal: Identifiable, Codable, Equatable {
         lhs.colorScheme == rhs.colorScheme &&
         lhs.startTime == rhs.startTime &&
         lhs.isActive == rhs.isActive &&
-        lhs.isDefault == rhs.isDefault
+        lhs.isDefault == rhs.isDefault &&
+        lhs.requiresSpecialInterface == rhs.requiresSpecialInterface &&
+        lhs.hasCustomReminders == rhs.hasCustomReminders &&
+        lhs.reminderTimes == rhs.reminderTimes
     }
     
     var color: Color {

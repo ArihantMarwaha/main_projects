@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import SwiftData
 import Combine
 
 struct BreakTrackerView: View {
@@ -71,11 +72,17 @@ struct BreakTimerView: View {
 // Preview
 struct BreakTrackerView_Previews: PreviewProvider {
     static var previews: some View {
-        let previewManager = GoalsManager()
+        // Create temporary ModelContext for preview
+        let schema = Schema([SDGoal.self, SDGoalEntry.self, SDJournalEntry.self, SDAnalytics.self, SDPetData.self, SDGoalStreak.self])
+        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let container = try! ModelContainer(for: schema, configurations: [config])
+        let modelContext = container.mainContext
+        
+        let previewManager = GoalsManager(modelContext: modelContext)
         let breakGoal = Goal(
             title: "Take Breaks",
             targetCount: 6,
-            intervalInSeconds: 7200,
+            intervalInSeconds: TrackerConstants.hourInSeconds * 2,
             colorScheme: .green,
             isDefault: true
         )

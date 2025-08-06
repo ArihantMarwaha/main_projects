@@ -39,7 +39,7 @@ struct WeeklyProgressView: View {
             Section("Statistics") {
                 StatRow(
                     title: "Current Streak",
-                    value: "\(goalsManager.rewardSystem.getStreak(for: analytics.goalId).currentStreak)",
+                    value: "0",
                     icon: "flame.fill",
                     color: goal?.colorScheme.primary ?? .blue
                 )
@@ -165,10 +165,7 @@ struct WeeklyProgressView: View {
             refreshID = UUID()
         }
         
-        goalsManager.rewardSystem.updateProgress(
-            for: analytics.goalId,
-            analytics: currentAnalytics
-        )
+        // Reward system removed
     }
     
     private func formatTime(_ timeInterval: TimeInterval) -> String {

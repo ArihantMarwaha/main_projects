@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import SwiftData
 
 struct WaterTrackerView: View {
     @StateObject var tracker: WaterGoalTracker
@@ -13,8 +14,8 @@ struct WaterTrackerView: View {
     
     var body: some View {
         GoalTrackerView(tracker: tracker)
-            .onChange(of: scenePhase) { newPhase in
-                if newPhase == .active {
+            .onChange(of: scenePhase) {
+                if scenePhase == .active {
                     // Refresh data when app becomes active
                     tracker.loadSavedData()
                 }
@@ -24,7 +25,13 @@ struct WaterTrackerView: View {
 
 struct WaterTrackerView_Previews: PreviewProvider {
     static var previews: some View {
-        let previewManager = GoalsManager()
+        // Create temporary ModelContext for preview
+        let schema = Schema([SDGoal.self, SDGoalEntry.self, SDJournalEntry.self, SDAnalytics.self, SDPetData.self, SDGoalStreak.self])
+        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let container = try! ModelContainer(for: schema, configurations: [config])
+        let modelContext = container.mainContext
+        
+        let previewManager = GoalsManager(modelContext: modelContext)
         let waterGoal = Goal(
             title: "Water Intake",
             targetCount: 8,

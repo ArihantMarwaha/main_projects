@@ -26,12 +26,25 @@ class AnalyticsManager: ObservableObject {
     }
     
     private func setupWeeklyReset() {
+        // Remove any existing observers first to prevent duplicates
+        NotificationCenter.default.removeObserver(
+            self,
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
+        
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(checkAndResetWeek),
             name: UIApplication.didBecomeActiveNotification,
             object: nil
         )
+    }
+    
+    deinit {
+        // Clean up notification observers to prevent retain cycles
+        NotificationCenter.default.removeObserver(self)
+        print("🧹 AnalyticsManager deallocated and observers cleaned up")
     }
     
     @objc private func checkAndResetWeek() {
@@ -68,35 +81,30 @@ class AnalyticsManager: ObservableObject {
         let today = calendar.startOfDay(for: Date())
         if var dailyData = analytics.dailyData.first(where: { calendar.isDate($0.date, inSameDayAs: today) }) {
             if goal.title == "Meals & Snacks" {
-                // For meals, we want to track each unique meal type per day
+                // For meals, track unique meal types per day
                 if entry.completed, let mealTypeStr = entry.mealType {
-                    // Get all completed meal types for today
-                    var completedMealTypes = Set(
-                        dailyData.completionTime.compactMap { _ in
-                            MealGoalTracker.MealType.from(mealTypeStr)
-                        }
-                    )
+                    print("📊 Recording meal analytics for: \(mealTypeStr)")
                     
-                    // Add the new meal type if it's not already completed
-                    if let newMealType = MealGoalTracker.MealType.from(mealTypeStr),
-                       !completedMealTypes.contains(newMealType) {
-                        completedMealTypes.insert(newMealType)
-                        
-                        // Create new daily data with updated count
-                        dailyData = DailyProgressData(
-                            id: dailyData.id,
-                            date: today,
-                            goalId: goal.id,
-                            completedCount: completedMealTypes.count,
-                            targetCount: goal.targetCount,
-                            completionTime: dailyData.completionTime + [entry.timestamp]
-                        )
-                        
-                        // Update the analytics with the new daily data
-                        if let index = analytics.dailyData.firstIndex(where: { calendar.isDate($0.date, inSameDayAs: today) }) {
-                            analytics.dailyData[index] = dailyData
-                        }
-                    }
+                    // Add completion time regardless
+                    var newCompletionTimes = dailyData.completionTime
+                    newCompletionTimes.append(entry.timestamp)
+                    
+                    // Calculate unique meal types for today (we need to track this differently)
+                    // For now, let's use a simpler approach: increment count for each meal logged
+                    dailyData = DailyProgressData(
+                        id: dailyData.id,
+                        date: today,
+                        goalId: goal.id,
+                        completedCount: dailyData.completedCount + 1,
+                        targetCount: goal.targetCount,
+                        completionTime: newCompletionTimes
+                    )
+                    print("✅ Meal analytics updated: \(dailyData.completedCount)/\(dailyData.targetCount)")
+                }
+                
+                // Update the analytics with the new daily data
+                if let index = analytics.dailyData.firstIndex(where: { calendar.isDate($0.date, inSameDayAs: today) }) {
+                    analytics.dailyData[index] = dailyData
                 }
             } else {
                 // Existing logic for other goals
@@ -106,7 +114,15 @@ class AnalyticsManager: ObservableObject {
                     goalId: goal.id,
                     completedCount: entry.completed ? dailyData.completedCount + 1 : dailyData.completedCount,
                     targetCount: goal.targetCount,
-                    completionTime: entry.completed ? dailyData.completionTime + [entry.timestamp] : dailyData.completionTime
+                    completionTime: {
+                        if entry.completed {
+                            var times = dailyData.completionTime
+                            times.append(entry.timestamp)
+                            return times
+                        } else {
+                            return dailyData.completionTime
+                        }
+                    }()
                 )
                 
                 if let index = analytics.dailyData.firstIndex(where: { calendar.isDate($0.date, inSameDayAs: today) }) {

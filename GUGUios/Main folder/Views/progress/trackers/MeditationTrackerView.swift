@@ -34,9 +34,8 @@ struct MeditationTrackerView: View {
         .animation(.easeInOut, value: isTimerRunning)
         .sheet(isPresented: $showingCompletionView) {
             MeditationCompletionView(duration: selectedDuration) {
-                if let nextEntry = tracker.todayEntries.first(where: { !$0.completed }) {
-                    tracker.logEntry(for: nextEntry)
-                }
+                // Do nothing here - session already logged in completeSession()
+                print("Meditation completion view dismissed")
             }
         }
         .onReceive(timer) { _ in

@@ -95,7 +95,7 @@ struct PetData: Codable {
             lastMealTime = Date()
             
         case "Take Breaks":
-            if -lastBreakTime.timeIntervalSinceNow < 5400 { // Within last 1.5 hours
+            if -lastBreakTime.timeIntervalSinceNow < 7200 { // Within last 2 hours
                 breakStreak = min(4, breakStreak + 1)
             } else {
                 breakStreak = 1
@@ -202,32 +202,17 @@ struct PetData: Codable {
    
 }
 
-struct PetAchievement: Codable, Identifiable {
-    let id: UUID
-    let title: String
-    let description: String
-    let dateEarned: Date
-    let type: AchievementType
-    
-    enum AchievementType: String, Codable {
-        case waterStreak
-        case mealStreak
-        case breakStreak
-        case perfectDay
-        case perfectWeek
-    }
-}
 
 // Decay thresholds (in hours)
 struct DecayThreshold {
-    static let water: Double = 2.5    // Start decay after 2 hours
-    static let meal: Double = 4.0     // Start decay after 4 hours
-    static let break_: Double = 3.5   // Start decay after 3 hours
+    static let water: Double = 1.0    // Start decay after 1 hour (matches cooldown)
+    static let meal: Double = 3.0     // Start decay after 3 hours (matches cooldown)
+    static let break_: Double = 2.0   // Start decay after 2 hours (matches cooldown)
 }
 
 // Decay rates (points per hour)
 struct DecayRate {
-    static let water: Double = 30.0   // Lose 25 points per hour
-    static let meal: Double = 20.0    // Lose 15 points per hour
-    static let break_: Double = 20.0  // Lose 20 points per hour
+    static let water: Double = 15.0   // Lose 15 points per hour (more gradual)
+    static let meal: Double = 10.0    // Lose 10 points per hour (slower for longer cooldown)
+    static let break_: Double = 12.0  // Lose 12 points per hour (moderate)
 }

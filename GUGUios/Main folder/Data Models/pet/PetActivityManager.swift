@@ -1,40 +1,43 @@
 import Foundation
 import SwiftUI
 import Combine
+import SwiftData
 
 @MainActor
 class PetActivityManager: ObservableObject {
-    var achievementTracker: AchievementTracker { AchievementTracker(rewardSystem: rewardSystem) }
     @MainActor @Published private(set) var petData: PetData
-    private let repository: PetRepository
-    let rewardSystem: RewardSystem
-    @MainActor @Published private(set) var progressionSystem: ProgressionSystem
-    
+    private var swiftDataRepository: SwiftDataPetRepository?
     private var needsCheckTimer: Timer?
     private var isCleanedUp = false
     
-    init(repository: PetRepository? = nil, rewardSystem: RewardSystem? = nil) {
-        self.repository = repository ?? PetRepository()
-        self.rewardSystem = rewardSystem ?? RewardSystem()
-        self.progressionSystem = ProgressionSystem()
-        self.petData = self.repository.loadPetData() ?? PetData(
-            name: "",
-            birthday: Date(),
-            dailyProgress: 0,
-            lastWaterTime: Date().addingTimeInterval(-7200), // Start 2 hours ago
-            lastMealTime: Date().addingTimeInterval(-7200),
-            lastBreakTime: Date().addingTimeInterval(-7200)
-        )
+    init(repository: SwiftDataPetRepository? = nil) {
+        self.swiftDataRepository = repository
         
-        // Initialize reward system with default achievements if needed
-        Task {
-            await initializeRewards()
+        // Load pet data from SwiftData or create default
+        if let repository = repository,
+           let sdPetData = repository.petData {
+            self.petData = sdPetData.toLegacyPetData()
+        } else {
+            self.petData = PetData(
+                name: "",
+                birthday: Date(),
+                dailyProgress: 0,
+                lastWaterTime: Date().addingTimeInterval(-7200), // Start 2 hours ago
+                lastMealTime: Date().addingTimeInterval(-7200),
+                lastBreakTime: Date().addingTimeInterval(-7200)
+            )
         }
+        
         
         // Add observer for goal updates
         setupNotificationObservers()
         
         startNeedsCheckTimer()
+        
+        // Schedule periodic pet notifications with pet name
+        Task {
+            scheduleRecurringNotifications()
+        }
     }
     
     private func setupNotificationObservers() {
@@ -44,112 +47,56 @@ class PetActivityManager: ObservableObject {
             queue: .main
         ) { [weak self] notification in
             guard let self = self,
-                  let goalType = notification.userInfo?["goalType"] as? String else { return }
-            
-            Task { @MainActor in
-                self.updateProgress(for: goalType)
+                  let goalTitle = notification.userInfo?["goalTitle"] as? String else { 
+                print("⚠️ Invalid notification payload in PetActivityManager - missing goalTitle")
+                print("⚠️ Available keys: \(notification.userInfo?.keys.map { String(describing: $0) } ?? [])")
+                return 
             }
+            
+            print("🐾 PetActivityManager received goal update for: \(goalTitle)")
+            // Already on main queue, can call directly
+            self.updateProgress(for: goalTitle)
         }
     }
     
-    // Make updateProgress nonisolated but wrap its implementation
-    nonisolated func updateProgress(for goalType: String) {
-        Task { @MainActor in
-            self.updateProgressOnMain(for: goalType)
-        }
-    }
-    
-    // The actual implementation is MainActor-isolated
+    // Update progress - now properly MainActor isolated
     @MainActor
-    private func updateProgressOnMain(for goalType: String) {
-        withAnimation(.spring(response: 0.3)) {
+    func updateProgress(for goalType: String) {
+        print("🐾 PetActivityManager updating progress for: \(goalType)")
+        
+        do {
+            withAnimation(.spring(response: 0.3)) {
             let now = Date()
             
             switch goalType {
             case "Water Intake":
                 petData.lastWaterTime = now
                 petData.hydration = 100
-                rewardSystem.updateProgress(
-                    for: .waterStreak,
-                    progress: Double(petData.hydration) / 100.0
-                )
                 
             case "Meals & Snacks":
                 petData.lastMealTime = now
                 petData.satisfaction = 100
-                rewardSystem.updateProgress(
-                    for: .mealStreak,
-                    progress: Double(petData.satisfaction) / 100.0
-                )
                 
             case "Take Breaks":
                 petData.lastBreakTime = now
                 petData.energy = 100
-                rewardSystem.updateProgress(
-                    for: .breakStreak,
-                    progress: Double(petData.energy) / 100.0
-                )
                 
             default: break
             }
             
-            // Update overall achievements
-            let avgStats = (petData.energy + petData.hydration + petData.satisfaction) / 3
-            rewardSystem.updateProgress(
-                for: .petCare,
-                progress: Double(avgStats) / 100.0
-            )
-            
-            rewardSystem.updateProgress(
-                for: .consistency,
-                progress: Double(petData.dailyProgress) / 3.0
-            )
             
             petData.updateState()
             savePetData()
             objectWillChange.send()
+            
+            print("✅ PetActivityManager progress updated successfully")
+        }
+        } catch {
+            print("❌ Error in PetActivityManager.updateProgress: \(error.localizedDescription)")
         }
     }
     
-    private func updateAchievement(_ type: AchievementType, level: AchievementLevel = .bronze) {
-        let progress: Double
-        switch type {
-        case .waterStreak:
-            progress = min(1.0, Double(petData.hydration) / 100.0)
-        case .mealStreak:
-            progress = min(1.0, Double(petData.satisfaction) / 100.0)
-        case .breakStreak:
-            progress = min(1.0, Double(petData.energy) / 100.0)
-        case .petCare:
-            let avgStats = Double(petData.energy + petData.hydration + petData.satisfaction) / 300.0
-            progress = min(1.0, avgStats)
-        case .consistency:
-            progress = min(1.0, Double(petData.dailyProgress) / 3.0)
-        default:
-            progress = 1.0
-        }
-        
-        rewardSystem.updateProgress(for: type, progress: progress, level: level)
-    }
     
-    private func initializeRewards() async {
-        // Initialize basic achievements
-        let defaultAchievements = [
-            (type: AchievementType.waterStreak, level: AchievementLevel.bronze),
-            (type: AchievementType.mealStreak, level: AchievementLevel.bronze),
-            (type: AchievementType.breakStreak, level: AchievementLevel.bronze),
-            (type: AchievementType.petCare, level: AchievementLevel.bronze),
-            (type: AchievementType.consistency, level: AchievementLevel.bronze)
-        ]
-        
-        for achievement in defaultAchievements {
-            rewardSystem.updateProgress(
-                for: achievement.type,
-                progress: 0.0,
-                level: achievement.level
-            )
-        }
-    }
     
     // Called by timer to regularly update pet state based on elapsed time
     @MainActor
@@ -161,11 +108,33 @@ class PetActivityManager: ObservableObject {
         
         petData.updateCharacteristics()
         
-        // Update achievements based on current stats
-        let avgStats = (petData.energy + petData.hydration + petData.satisfaction) / 3
-        rewardSystem.updateProgress(
-            for: .petCare,
-            progress: Double(avgStats) / 100.0
+        
+        // Schedule pet state notifications when state changes significantly
+        if oldState != petData.state {
+            Task {
+                NotificationManager.shared.schedulePetStateNotification(
+                    petState: petData.state.rawValue,
+                    petName: petData.name
+                )
+            }
+            
+            // Post pet state updated notification
+            NotificationCenter.default.post(
+                name: .petStateUpdated,
+                object: nil,
+                userInfo: [
+                    "oldState": oldState.rawValue,
+                    "newState": petData.state.rawValue,
+                    "petName": petData.name
+                ]
+            )
+        }
+        
+        // Check for stat-specific notifications when stats drop significantly
+        checkForStatSpecificNotifications(
+            oldEnergy: oldEnergy,
+            oldHydration: oldHydration,
+            oldSatisfaction: oldSatisfaction
         )
         
         if oldState != petData.state ||
@@ -175,6 +144,59 @@ class PetActivityManager: ObservableObject {
             withAnimation(.easeInOut(duration: 0.3)) {
                 savePetData()
                 objectWillChange.send()
+            }
+        }
+    }
+    
+    private func checkForStatSpecificNotifications(oldEnergy: Int, oldHydration: Int, oldSatisfaction: Int) {
+        // Check for significant drops in individual stats and send targeted notifications
+        
+        // Energy notifications - when energy drops below thresholds
+        if oldEnergy > 30 && petData.energy <= 30 {
+            Task {
+                NotificationManager.shared.scheduleStatSpecificPetNotification(
+                    statType: "energy",
+                    statValue: petData.energy,
+                    petName: petData.name
+                )
+            }
+        }
+        
+        // Hydration notifications - when hydration drops below thresholds
+        if oldHydration > 30 && petData.hydration <= 30 {
+            Task {
+                NotificationManager.shared.scheduleStatSpecificPetNotification(
+                    statType: "hydration",
+                    statValue: petData.hydration,
+                    petName: petData.name
+                )
+            }
+        }
+        
+        // Satisfaction notifications - when satisfaction drops below thresholds
+        if oldSatisfaction > 30 && petData.satisfaction <= 30 {
+            Task {
+                NotificationManager.shared.scheduleStatSpecificPetNotification(
+                    statType: "satisfaction",
+                    statValue: petData.satisfaction,
+                    petName: petData.name
+                )
+            }
+        }
+        
+        // Critical state notifications - when any stat drops very low
+        if petData.energy <= 20 || petData.hydration <= 20 || petData.satisfaction <= 20 {
+            Task {
+                let criticalStat = petData.energy <= 20 ? "energy" : 
+                                  petData.hydration <= 20 ? "hydration" : "satisfaction"
+                let criticalValue = petData.energy <= 20 ? petData.energy : 
+                                   petData.hydration <= 20 ? petData.hydration : petData.satisfaction
+                
+                NotificationManager.shared.scheduleStatSpecificPetNotification(
+                    statType: criticalStat,
+                    statValue: criticalValue,
+                    petName: petData.name
+                )
             }
         }
     }
@@ -197,9 +219,45 @@ class PetActivityManager: ObservableObject {
         }
     }
     
+    // Setup SwiftData repository
+    func setupSwiftDataRepository(_ repository: SwiftDataPetRepository) {
+        self.swiftDataRepository = repository
+        
+        // Load data from SwiftData if available
+        if let sdPetData = repository.petData?.toLegacyPetData() {
+            self.petData = sdPetData
+        }
+    }
+    
     // Made internal for preview access
     @MainActor internal func savePetData() {
-        repository.savePetData(petData)
+        if let swiftDataRepo = swiftDataRepository {
+            // Save using SwiftData
+            if let existingSDPetData = swiftDataRepo.petData {
+                // Update existing pet data
+                existingSDPetData.name = petData.name
+                existingSDPetData.dailyProgress = petData.dailyProgress
+                existingSDPetData.petState = petData.state
+                existingSDPetData.energy = petData.energy
+                existingSDPetData.hydration = petData.hydration
+                existingSDPetData.satisfaction = petData.satisfaction
+                existingSDPetData.happiness = petData.happiness
+                existingSDPetData.stress = petData.stress
+                existingSDPetData.lastWaterTime = petData.lastWaterTime
+                existingSDPetData.lastMealTime = petData.lastMealTime
+                existingSDPetData.lastBreakTime = petData.lastBreakTime
+                existingSDPetData.waterStreak = petData.waterStreak
+                existingSDPetData.mealStreak = petData.mealStreak
+                existingSDPetData.breakStreak = petData.breakStreak
+                
+                try? swiftDataRepo.updatePetData()
+            } else {
+                // Create new pet data
+                let sdPetData = SDPetData.fromLegacyPetData(petData)
+                try? swiftDataRepo.createPetData(sdPetData)
+            }
+        }
+        // No fallback - SwiftData only
     }
     
     nonisolated func cleanup() {
@@ -219,6 +277,17 @@ class PetActivityManager: ObservableObject {
     
     deinit {
         cleanup()
+    }
+    
+    // Schedule recurring pet and motivational notifications
+    private func scheduleRecurringNotifications() {
+        Task {
+            // Schedule pet check-in notifications with pet name
+            NotificationManager.shared.schedulePetCheckIn()
+            
+            // Schedule motivational notifications
+            NotificationManager.shared.scheduleMotivationalNotification()
+        }
     }
     
     // Handle cooldown effects

@@ -63,15 +63,23 @@ struct MealCardView: View {
     
     var body: some View {
         Button {
-            withAnimation(.spring(response: 0.3)) {
-                if tracker.canLogMeal(mealType) {
-                    tracker.logMeal(mealType)
+            // Don't nest animations - let the tracker handle its own animation
+            if tracker.canLogMeal(mealType) {
+                print("🎯 MealTrackerView: Logging \(mealType.rawValue)")
+                tracker.logMeal(mealType)
+                
+                // Animate the UI feedback separately
+                withAnimation(.spring(response: 0.3)) {
                     isAnimating = true
-                    
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                }
+                
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    withAnimation(.spring(response: 0.3)) {
                         isAnimating = false
                     }
                 }
+            } else {
+                print("⚠️ Cannot log meal \(mealType.rawValue) - already completed or cooling down")
             }
         } label: {
             HStack {

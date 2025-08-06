@@ -20,6 +20,7 @@ struct ColorSchemePicker: View {
                     Text(scheme.rawValue.capitalized)
                 }
                 .tag(scheme)
+                
             }
         }
     }

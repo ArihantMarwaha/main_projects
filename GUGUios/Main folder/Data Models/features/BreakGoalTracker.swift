@@ -10,7 +10,7 @@ import Combine
 
 @MainActor
 class BreakGoalTracker: GoalTracker {
-    static func createDefault(analyticsManager: AnalyticsManager) -> BreakGoalTracker {
+    static func createDefault(analyticsManager: AnalyticsManager, swiftDataRepository: SwiftDataGoalRepository? = nil) -> BreakGoalTracker {
         let breakGoal = Goal(
             title: "Take Breaks",
             targetCount: 6,
@@ -18,18 +18,35 @@ class BreakGoalTracker: GoalTracker {
             colorScheme: .green,
             isDefault: true  // Mark as default
         )
-        return BreakGoalTracker(goal: breakGoal, analyticsManager: analyticsManager)
+        return BreakGoalTracker(goal: breakGoal, analyticsManager: analyticsManager, swiftDataRepository: swiftDataRepository)
+    }
+    
+    override init(goal: Goal, analyticsManager: AnalyticsManager, swiftDataRepository: SwiftDataGoalRepository? = nil) {
+        super.init(goal: goal, analyticsManager: analyticsManager, swiftDataRepository: swiftDataRepository)
     }
     
     override func logEntry(for entry: GoalEntry) {
         super.logEntry(for: entry)
         
         Task {
-            NotificationManager.shared.scheduleNotification(
-                title: "Break Time!",
-                body: "Time to stretch and rest your eyes",
-                delay: 3 * TrackerConstants.hourInSeconds
-            )
+            // Schedule goal reminder if not fully completed
+            let currentProgress = todayEntries.filter { $0.completed }.count
+            let remaining = goal.targetCount - currentProgress
+            if remaining > 0 {
+                NotificationManager.shared.scheduleGoalReminder(
+                    goalTitle: goal.title,
+                    targetCount: goal.targetCount,
+                    currentProgress: currentProgress
+                )
+            }
+            
+            // Schedule cooldown end notification
+            if let nextAvailable = entry.nextAvailableTime {
+                NotificationManager.shared.scheduleGoalCooldownEnd(
+                    goalTitle: goal.title,
+                    cooldownEndTime: nextAvailable
+                )
+            }
         }
     }
 }

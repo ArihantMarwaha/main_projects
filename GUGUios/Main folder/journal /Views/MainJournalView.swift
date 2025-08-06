@@ -6,10 +6,12 @@
 //
 
 import SwiftUI
+import SwiftData
 import Combine
 
 struct MainJournalView: View {
-    @StateObject private var repository = JournalRepository()
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \SDJournalEntry.date, order: .reverse) private var journalEntries: [SDJournalEntry]
     @State private var showingNewEntry = false
     @State private var searchText = ""
     @State private var sortOption: SortOption = .dateDesc
@@ -51,21 +53,29 @@ struct MainJournalView: View {
             .animation(.spring(response: 0.3, dampingFraction: 0.8), value: filteredAndSortedEntries)
         }
         .sheet(isPresented: $showingNewEntry) {
-            NewEntryView(repository: repository)
+            NewEntryView(modelContext: modelContext)
         }
     }
     
     private var statsSection: some View {
         HStack {
-            StatView(icon: "book.closed", value: "\(repository.totalEntries)", title: "Entry This Year")
+            StatView(icon: "book.closed", value: "\(journalEntries.count)", title: "Entry This Year")
                 .frame(maxWidth: .infinity)
-            StatView(icon: "text.quote", value: "\(repository.totalWordsWritten)", title: "Words Written")
+            StatView(icon: "text.quote", value: "\(totalWordsWritten)", title: "Words Written")
                 .frame(maxWidth: .infinity)
-            StatView(icon: "calendar", value: "\(repository.daysJournaled)", title: "Days Journaled")
+            StatView(icon: "calendar", value: "\(daysJournaled)", title: "Days Journaled")
                 .frame(maxWidth: .infinity)
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
+    }
+    
+    private var totalWordsWritten: Int {
+        journalEntries.reduce(0) { $0 + $1.wordCount }
+    }
+    
+    private var daysJournaled: Int {
+        Set(journalEntries.map { Calendar.current.startOfDay(for: $0.date) }).count
     }
     
     private var entriesList: some View {
@@ -78,7 +88,7 @@ struct MainJournalView: View {
                 
                 LazyVStack(spacing: 12) {
                     ForEach(groupedEntries[month] ?? []) { entry in
-                        JournalEntryCard(entry: entry, repository: repository)
+                        JournalEntryCard(entry: entry, modelContext: modelContext)
                             .transition(.asymmetric(
                                 insertion: .scale(scale: 0.9).combined(with: .opacity),
                                 removal: .scale(scale: 0.9).combined(with: .opacity)
@@ -135,8 +145,8 @@ struct MainJournalView: View {
         }
     }
     
-    private var filteredAndSortedEntries: [JournalEntry] {
-        let filtered = searchText.isEmpty ? repository.entries : repository.entries.filter {
+    private var filteredAndSortedEntries: [SDJournalEntry] {
+        let filtered = searchText.isEmpty ? journalEntries : journalEntries.filter {
             $0.title.localizedCaseInsensitiveContains(searchText) ||
             $0.content.localizedCaseInsensitiveContains(searchText)
         }
@@ -155,7 +165,7 @@ struct MainJournalView: View {
         }
     }
     
-    private var groupedEntries: [String: [JournalEntry]] {
+    private var groupedEntries: [String: [SDJournalEntry]] {
         Dictionary(grouping: filteredAndSortedEntries) { entry in
             let formatter = DateFormatter()
             formatter.dateFormat = "MMMM yyyy"
@@ -187,12 +197,12 @@ struct StatView: View {
 }
 
 struct JournalEntryCard: View {
-    let entry: JournalEntry
-    let repository: JournalRepository
+    let entry: SDJournalEntry
+    let modelContext: ModelContext
     @State private var showingDeleteAlert = false
     
     var body: some View {
-        NavigationLink(destination: JournalEntryDetailView(entry: entry, repository: repository)) {
+        NavigationLink(destination: JournalEntryDetailView(entry: entry, modelContext: modelContext)) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .top) {
                     Text(entry.title)
@@ -260,7 +270,8 @@ struct JournalEntryCard: View {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) {
                 withAnimation(.easeInOut(duration: 0.3)) {
-                    repository.deleteEntry(entry)
+                    modelContext.delete(entry)
+                    try? modelContext.save()
                 }
             }
         } message: {

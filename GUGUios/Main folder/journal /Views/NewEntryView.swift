@@ -1,9 +1,10 @@
 import SwiftUI
+import SwiftData
 import PhotosUI
 
 struct NewEntryView: View {
     @Environment(\.dismiss) private var dismiss
-    @ObservedObject var repository: JournalRepository
+    let modelContext: ModelContext
     
     @State private var title = ""
     @State private var content = ""
@@ -161,12 +162,13 @@ struct NewEntryView: View {
     }
     
     private func saveEntry() {
-        let entry = JournalEntry(
+        let entry = SDJournalEntry(
             title: title,
             content: content,
             images: images
         )
-        repository.addEntry(entry)
+        modelContext.insert(entry)
+        try? modelContext.save()
         dismiss()
     }
 }

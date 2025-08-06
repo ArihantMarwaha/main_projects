@@ -29,8 +29,24 @@ import Combine
              }
              
              Button(action: {
+                 // First ensure we have entries
+                 if tracker.todayEntries.isEmpty {
+                     tracker.generateSchedule()
+                 }
+                 
+                 // Find first incomplete entry
                  if let nextEntry = tracker.todayEntries.first(where: { !$0.completed }) {
                      tracker.logEntry(for: nextEntry)
+                 } else {
+                     // If no incomplete entries but can still log (e.g., no cooldown), create a new entry
+                     if tracker.canLogEntry() && tracker.todayEntries.count < tracker.goal.targetCount {
+                         let newEntry = GoalEntry(
+                             goalId: tracker.goal.id,
+                             scheduledTime: Date()
+                         )
+                         tracker.todayEntries.append(newEntry)
+                         tracker.logEntry(for: newEntry)
+                     }
                  }
              }) {
                  Text("Log \(tracker.goal.title)")
@@ -44,7 +60,7 @@ import Combine
          .onAppear {
              progress = tracker.getProgress()
          }
-         .onChange(of: tracker.todayEntries) { _ in
+         .onChange(of: tracker.todayEntries) {
              withAnimation(.spring(response: 0.4, dampingFraction: 0.6, blendDuration: 0.8)) {
                  progress = tracker.getProgress()
              }
@@ -95,7 +111,7 @@ struct CountdownTimer: View {
               goal: Goal(
                   title: "Take Breaks",
                   targetCount: 5,
-                  intervalInSeconds: 3 * 3600, // 3 hours
+                  intervalInSeconds: 2 * 3600, // 2 hours
                   colorScheme: .orange,
                   startTime: Calendar.current.startOfDay(for: Date())
               ), analyticsManager: AnalyticsManager()

@@ -92,6 +92,38 @@ struct GoalEditView: View {
                     }
                     
                     Section {
+                        Toggle("Enable Custom Reminders", isOn: $viewModel.hasCustomReminders)
+                            .onChange(of: viewModel.hasCustomReminders) {
+                                if !viewModel.hasCustomReminders {
+                                    viewModel.reminderTimes.removeAll()
+                                }
+                            }
+                        
+                        if viewModel.hasCustomReminders {
+                            ForEach(Array(viewModel.reminderTimes.enumerated()), id: \.offset) { index, reminderTime in
+                                DatePicker("Reminder \(index + 1)", selection: Binding(
+                                    get: { viewModel.reminderTimes[index] },
+                                    set: { viewModel.reminderTimes[index] = $0 }
+                                ), displayedComponents: .hourAndMinute)
+                            }
+                            .onDelete(perform: viewModel.deleteReminder)
+                            
+                            Button("Add Reminder") {
+                                viewModel.addReminder()
+                            }
+                            .disabled(viewModel.reminderTimes.count >= 5)
+                        }
+                    } header: {
+                        Text("Reminders")
+                    } footer: {
+                        if viewModel.hasCustomReminders {
+                            Text("Set specific times to be reminded about this goal. Description will be used as reminder text.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    
+                    Section {
                         Toggle("Reset Progress", isOn: $shouldResetProgress)
                     } header: {
                         Text("Progress")

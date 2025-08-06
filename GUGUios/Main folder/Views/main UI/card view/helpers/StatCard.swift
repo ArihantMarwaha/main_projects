@@ -42,20 +42,30 @@ struct StatCard: View {
     let title: String
     let value: String
     let icon: String
-    let color: Color
+    let color: Color?
+    
+    @EnvironmentObject private var appearanceManager: AppearanceManager
+    
+    init(title: String, value: String, icon: String, color: Color? = nil) {
+        self.title = title
+        self.value = value
+        self.icon = icon
+        self.color = color
+    }
     
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: icon)
-                .foregroundColor(color)
+                .foregroundColor(color ?? appearanceManager.accentColor)
                 .font(.system(size: 20))
             
             VStack(alignment: .leading, spacing: 5) {
                 Text(title)
-                    .font(.subheadline)
+                    .font(appearanceManager.captionFont)
                     .foregroundColor(.secondary)
                 Text(value)
-                    .font(.system(size: 25, weight: .bold))
+                    .font(appearanceManager.headlineFont)
+                    .fontWeight(.bold)
             }
             Spacer()
         }
@@ -63,6 +73,7 @@ struct StatCard: View {
         .padding(.horizontal, 10)
         .background(Color(.secondarySystemBackground))
         .cornerRadius(20)
+        .themedAnimation(appearanceManager.selectedAccentColor)
     }
 }
 

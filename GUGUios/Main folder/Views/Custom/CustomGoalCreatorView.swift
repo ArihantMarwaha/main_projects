@@ -6,18 +6,16 @@
 //
 
 import SwiftUI
+import SwiftData
 import Foundation
 
 struct CustomGoalCreatorView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var goalsManager: GoalsManager
-    @StateObject private var viewModel: CustomGoalCreatorViewModel
+    @StateObject private var viewModel = CustomGoalCreatorViewModel()
     @FocusState private var focusedField: Field?
-    
-    init() {
-        _viewModel = StateObject(wrappedValue: CustomGoalCreatorViewModel(goalsManager: GoalsManager()))
-    }
+    @State private var isSaving = false
     
     private enum Field: Hashable {
         case title, description, interval
@@ -35,7 +33,7 @@ struct CustomGoalCreatorView: View {
                     basicInformationSection
                     appearanceSection
                     targetConfigurationSection
-                    
+                    remindersSection
                 }
                 .scrollDismissesKeyboard(.immediately)
                 .navigationTitle("Create New Goal")
@@ -46,12 +44,22 @@ struct CustomGoalCreatorView: View {
                     
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Save") {
+                            isSaving = true
                             Task {
                                 await viewModel.saveGoal()
-                                dismiss()
+                                await MainActor.run {
+                                    isSaving = false
+                                    dismiss()
+                                }
                             }
                         }
-                        .disabled(!viewModel.isFormValid)
+                        .disabled(!viewModel.isFormValid || isSaving)
+                        .overlay(
+                            isSaving ? ProgressView()
+                                .scaleEffect(0.8)
+                                .opacity(0.8)
+                            : nil
+                        )
                     }
                     
                     ToolbarItem(placement: .keyboard) {
@@ -68,15 +76,13 @@ struct CustomGoalCreatorView: View {
             }
         }
         .task {
-            let newViewModel = CustomGoalCreatorViewModel(goalsManager: goalsManager)
-            newViewModel.template = viewModel.template
             viewModel.updateGoalsManager(goalsManager)
         }
         .preferredColorScheme(colorScheme)
-        .onChange(of: viewModel.intervalHours) { _ in
+        .onChange(of: viewModel.intervalHours) {
             viewModel.updateInterval()
         }
-        .onChange(of: viewModel.intervalMinutes) { _ in
+        .onChange(of: viewModel.intervalMinutes) {
             viewModel.updateInterval()
         }
     }
@@ -180,6 +186,40 @@ struct CustomGoalCreatorView: View {
     }
     
    
+    private var remindersSection: some View {
+        Section {
+            Toggle("Enable Custom Reminders", isOn: $viewModel.template.hasCustomReminders)
+                .onChange(of: viewModel.template.hasCustomReminders) {
+                    if !viewModel.template.hasCustomReminders {
+                        viewModel.template.reminderTimes.removeAll()
+                    }
+                }
+            
+            if viewModel.template.hasCustomReminders {
+                ForEach(Array(viewModel.template.reminderTimes.enumerated()), id: \.offset) { index, reminderTime in
+                    DatePicker("Reminder \(index + 1)", selection: Binding(
+                        get: { viewModel.template.reminderTimes[index] },
+                        set: { viewModel.template.reminderTimes[index] = $0 }
+                    ), displayedComponents: .hourAndMinute)
+                }
+                .onDelete(perform: viewModel.deleteReminder)
+                
+                Button("Add Reminder") {
+                    viewModel.addReminder()
+                }
+                .disabled(viewModel.template.reminderTimes.count >= 5)
+            }
+        } header: {
+            Text("Reminders")
+        } footer: {
+            if viewModel.template.hasCustomReminders {
+                Text("Set specific times to be reminded about this goal. Description will be used as reminder text.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+    
     private var previewSection: some View {
         Section("Preview") {
             GoalPreviewCard(template: viewModel.template) {
@@ -194,7 +234,13 @@ struct CustomGoalCreatorView: View {
 // Preview
 struct CustomGoalCreatorView_Previews: PreviewProvider {
     static var previews: some View {
-        let previewManager = GoalsManager()
+        // Create temporary ModelContext for preview
+        let schema = Schema([SDGoal.self, SDGoalEntry.self, SDJournalEntry.self, SDAnalytics.self, SDPetData.self, SDGoalStreak.self])
+        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let container = try! ModelContainer(for: schema, configurations: [config])
+        let modelContext = container.mainContext
+        
+        let previewManager = GoalsManager(modelContext: modelContext)
         Group {
             CustomGoalCreatorView()
                 .environmentObject(previewManager)

@@ -15,6 +15,8 @@ struct CustomGoalTemplate: Codable, Identifiable {
     var intervalHours: Double
     var colorScheme: GoalColorScheme
     var isEnabled: Bool
+    var hasCustomReminders: Bool
+    var reminderTimes: [Date]
     
     init(id: UUID = UUID(),
          title: String = "",
@@ -22,7 +24,9 @@ struct CustomGoalTemplate: Codable, Identifiable {
          targetCount: Int = 1,
          intervalHours: Double = 1,
          colorScheme: GoalColorScheme = .blue,
-         isEnabled: Bool = true) {
+         isEnabled: Bool = true,
+         hasCustomReminders: Bool = false,
+         reminderTimes: [Date] = []) {
         self.id = id
         self.title = title
         self.description = description
@@ -30,6 +34,8 @@ struct CustomGoalTemplate: Codable, Identifiable {
         self.intervalHours = intervalHours
         self.colorScheme = colorScheme
         self.isEnabled = isEnabled
+        self.hasCustomReminders = hasCustomReminders
+        self.reminderTimes = reminderTimes
     }
     
     func createGoal() -> Goal {
@@ -38,7 +44,9 @@ struct CustomGoalTemplate: Codable, Identifiable {
             description: description.trimmingCharacters(in: .whitespacesAndNewlines),
             targetCount: targetCount,
             intervalInSeconds: intervalHours * 3600,
-            colorScheme: colorScheme
+            colorScheme: colorScheme,
+            hasCustomReminders: hasCustomReminders,
+            reminderTimes: reminderTimes
         )
     }
 }

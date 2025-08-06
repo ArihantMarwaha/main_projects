@@ -70,7 +70,7 @@ struct ProgressRingView: View {
                  goal: Goal(
                      title: "Take Breaks",
                      targetCount: 5,
-                     intervalInSeconds: 3 * 3600, // 3 hours
+                     intervalInSeconds: 2 * 3600, // 2 hours
                      colorScheme: .green,
                      startTime: Calendar.current.startOfDay(for: Date())
                  )

@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 struct DailySummaryView: View {
     @ObservedObject var goalsManager: GoalsManager
@@ -66,22 +67,5 @@ struct DailySummaryView: View {
 
 
 // Preview
-struct DailySummaryView_Previews: PreviewProvider {
-    static var previews: some View {
-        let previewManager = GoalsManager()
 
-        return Group {
-            DailySummaryView(goalsManager: previewManager)
-                .previewLayout(.sizeThatFits)
-                .padding()
-                .previewDisplayName("Light Mode")
-            
-            DailySummaryView(goalsManager: previewManager)
-                .previewLayout(.sizeThatFits)
-                .padding()
-                .preferredColorScheme(.dark)
-                .previewDisplayName("Dark Mode")
-        }
-    }
-}
 

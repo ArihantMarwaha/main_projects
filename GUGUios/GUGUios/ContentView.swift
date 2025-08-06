@@ -6,16 +6,41 @@
 //
 
 import SwiftUI
+import SwiftData
 
 struct ContentView: View {
-    @StateObject private var goalsManager = GoalsManager()
+    @Environment(\.modelContext) private var modelContext
+    @State private var goalsManager: GoalsManager?
     
     var body: some View {
-        MainTabView()
-            .environmentObject(goalsManager)
-            .onAppear {
-                goalsManager.startObservingAppState()
+        Group {
+            if let goalsManager = goalsManager {
+                MainTabView()
+                    .environmentObject(goalsManager)
+                    .environmentObject(AppearanceManager.shared)
+            } else {
+                ProgressView("Loading...")
             }
+        }
+        .applyAppearanceSettings()
+        .onAppear {
+            if goalsManager == nil {
+                goalsManager = GoalsManager(modelContext: modelContext)
+                goalsManager?.startObservingAppState()
+                
+                // Setup App Intents Manager after goals are loaded
+                Task { @MainActor in
+                    if let goalsManager = goalsManager {
+                        AppIntentsManager.shared.setup(
+                            goalsManager: goalsManager,
+                            petActivityManager: goalsManager.petActivityManager
+                        )
+                        print("✅ App Intents Manager setup completed")
+                        
+                    }
+                }
+            }
+        }
     }
 }
 

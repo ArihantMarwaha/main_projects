@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import SwiftData
 import Charts
 
 struct MainTabView: View {
@@ -14,8 +15,21 @@ struct MainTabView: View {
     @State private var showingAnalytics = false
     @State private var selectedGoal: Goal?
     @State private var weeklyOverviewRefreshID = UUID()
+    @State private var cachedWeeklyStats: [(Goal, WeeklyAnalytics)] = []
+    @State private var lastStatsUpdate = Date.distantPast
     
+    // Cache expensive computation to prevent UI hangs
     private var weeklyStats: [(Goal, WeeklyAnalytics)] {
+        let now = Date()
+        // Only recompute if cache is older than 5 seconds
+        if now.timeIntervalSince(lastStatsUpdate) < 5.0 && !cachedWeeklyStats.isEmpty {
+            return cachedWeeklyStats
+        }
+        
+        return computeWeeklyStats()
+    }
+    
+    private func computeWeeklyStats() -> [(Goal, WeeklyAnalytics)] {
         // First, get all default goals
         let defaultGoals = goalsManager.goals.filter { $0.isDefault }
         
@@ -59,7 +73,13 @@ struct MainTabView: View {
         
         // Combine default goals with other goals that have analytics
         let nonDefaultGoalsWithAnalytics = goalsWithAnalytics.filter { !$0.0.isDefault }
-        return defaultGoalsWithAnalytics + nonDefaultGoalsWithAnalytics
+        let result = defaultGoalsWithAnalytics + nonDefaultGoalsWithAnalytics
+        
+        // Update cache (already on MainActor)
+        cachedWeeklyStats = result
+        lastStatsUpdate = Date()
+        
+        return result
     }
     
     var body: some View {
@@ -90,11 +110,21 @@ struct MainTabView: View {
                     Label("Progress", systemImage: "chart.bar.fill")
                 }
                 .tag(3)
+            
+            SettingsView()
+                .tabItem {
+                    Label("Settings", systemImage: "gear")
+                }
+                .tag(4)
         }
         .onReceive(NotificationCenter.default.publisher(for: .goalProgressUpdated)) { _ in
+            // Invalidate cache when goals are updated
+            lastStatsUpdate = Date.distantPast
             weeklyOverviewRefreshID = UUID()
         }
         .onReceive(NotificationCenter.default.publisher(for: .analyticsDidUpdate)) { _ in
+            // Invalidate cache when analytics are updated
+            lastStatsUpdate = Date.distantPast
             weeklyOverviewRefreshID = UUID()
         }
     }
@@ -649,7 +679,13 @@ struct EmptyAnalyticsView: View {
 // Preview
 struct MainTabView_Previews: PreviewProvider {
     static var previews: some View {
-        let manager = GoalsManager()
+        // Create temporary ModelContext for preview
+        let schema = Schema([SDGoal.self, SDGoalEntry.self, SDJournalEntry.self, SDAnalytics.self, SDPetData.self, SDGoalStreak.self])
+        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let container = try! ModelContainer(for: schema, configurations: [config])
+        let modelContext = container.mainContext
+        
+        let manager = GoalsManager(modelContext: modelContext)
         MainTabView()
             .environmentObject(manager)
     }

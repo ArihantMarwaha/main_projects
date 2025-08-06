@@ -1,11 +1,12 @@
 import SwiftUI
+import SwiftData
 import PhotosUI
 import Combine
 
 struct JournalEntryDetailView: View {
     @Environment(\.dismiss) private var dismiss
-    @ObservedObject var repository: JournalRepository
-    @State private var entry: JournalEntry
+    let modelContext: ModelContext
+    @State private var entry: SDJournalEntry
     @State private var showingImagePicker = false
     
     // Editing states
@@ -13,8 +14,8 @@ struct JournalEntryDetailView: View {
     @State private var editedContent: String
     @State private var editedImages: [String]
     
-    init(entry: JournalEntry, repository: JournalRepository) {
-        self.repository = repository
+    init(entry: SDJournalEntry, modelContext: ModelContext) {
+        self.modelContext = modelContext
         _entry = State(initialValue: entry)
         _editedTitle = State(initialValue: entry.title)
         _editedContent = State(initialValue: entry.content)
@@ -102,9 +103,9 @@ struct JournalEntryDetailView: View {
             .padding(.vertical, 16)
         }
         .navigationBarTitleDisplayMode(.inline)
-        .onChange(of: editedTitle) { _ in saveChanges() }
-        .onChange(of: editedContent) { _ in saveChanges() }
-        .onChange(of: editedImages) { _ in saveChanges() }
+        .onChange(of: editedTitle) { saveChanges() }
+        .onChange(of: editedContent) { saveChanges() }
+        .onChange(of: editedImages) { saveChanges() }
         .sheet(isPresented: $showingImagePicker) {
             ImagePicker(images: $editedImages)
         }
@@ -120,15 +121,13 @@ struct JournalEntryDetailView: View {
     }
     
     private func saveChanges() {
-        let updatedEntry = JournalEntry(
-            id: entry.id,
-            title: editedTitle,
-            content: editedContent,
-            date: entry.date,
-            images: editedImages
-        )
-        repository.updateEntry(updatedEntry)
-        entry = updatedEntry
+        // Update the existing SwiftData entry directly
+        entry.title = editedTitle
+        entry.content = editedContent
+        entry.images = editedImages
+        entry.updateWordCount()
+        
+        try? modelContext.save()
     }
 }
 
